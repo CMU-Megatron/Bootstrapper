@@ -47,12 +47,15 @@ func handleRequest(conn *net.TCPConn) {
     mqMutex.Lock()
     defer mqMutex.Unlock()
 
-    if masterQueue.Len() == 0 {
-        msg.messageType = INIT
+    if masterQueue.Len() == 0 || msg.messageType == INIT {
+        /* If the node does not already know that it is the master, notify */
+        if (msg.messageType == INIT) {
+            msg.messageType = INIT
 
-        /* Declare him as a master */
-        if c.writer(&msg) == false {
-            return
+            /* Declare master */
+            if c.writer(&msg) == false {
+                return
+            }
         }
 
         insertMasterQueue(c)

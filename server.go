@@ -25,17 +25,20 @@ func main() {
 }
 
 func handleRequest(conn *net.TCPConn) {
+    fmt.Println("New connection..")
     var buf [BUFF_SIZE]byte
     var msg message
     defer conn.Close()
 
     n, err := conn.Read(buf[0:])
     if err != nil {
+        conn.Close()
         return
     }
 
     err = deserializeMessage(buf, n, &msg)
     if err != nil {
+        conn.Close()
         return
     }
 
@@ -46,14 +49,17 @@ func handleRequest(conn *net.TCPConn) {
 
     mqMutex.Lock()
     defer mqMutex.Unlock()
+    fmt.Println("Queue length : ", masterQueue.Len())
 
     if masterQueue.Len() == 0 || msg.messageType == INIT {
         /* If the node does not already know that it is the master, notify */
-        if (msg.messageType == INIT) {
+        if (msg.messageType != INIT) {
             msg.messageType = INIT
 
             /* Declare master */
+            fmt.Println("Declaring " + msg.data + "as master")
             if c.writer(&msg) == false {
+                conn.Close()
                 return
             }
         }
@@ -63,18 +69,30 @@ func handleRequest(conn *net.TCPConn) {
 
         /*
          * Wait for the bootstrapping process to complete. Once bootstrapping
-         * is complete, master node will close the socket from it's end.
+         * is complete, master node will stop sending heart-beats and close the
+         * socket from it's end.
          */
-        conn.Read(buf[0:])
+        for {
+            n, err = conn.Read(buf[0:])
+            if err != nil {
+                fmt.Println("Bootstrapping completed for " + msg.data)
+                conn.Close()
+                break
+            }
+        }
+
+        fmt.Println("Bootstrapping complete")
         mqMutex.Lock()
         removeMasterQueue(c)
     } else {
         masterConn := getCurrentMaster()
         msg.messageType = BOOTSTRAP
+        fmt.Println("Telling " + msg.data + " that " + masterConn.node + " is the master")
         msg.data = masterConn.node
 
         /* Send master data to the node */
         c.writer(&msg)
+        c.socket.Close()
     }
 }
 

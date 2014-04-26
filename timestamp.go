@@ -1,6 +1,6 @@
 package main
 
 /* Vector timestamp structure */
-type timestamp struct {
-    vector [NODE_COUNT]int
+type Timestamp struct {
+    Vector [NODE_COUNT]int
 }

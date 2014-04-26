@@ -4,12 +4,15 @@ import (
     "fmt"
     "net"
     "os"
+    "encoding/gob"
 )
 
 func main() {
     service := ":1800"
     tcpAddr, err := net.ResolveTCPAddr("tcp4", service)
     checkError(err)
+
+    gob.Register(Message{})
 
     listener, err := net.ListenTCP("tcp", tcpAddr)
     checkError(err)
@@ -26,40 +29,40 @@ func main() {
 
 func handleRequest(conn *net.TCPConn) {
     fmt.Println("New connection..")
-    var buf [BUFF_SIZE]byte
-    var msg message
     defer conn.Close()
 
-    n, err := conn.Read(buf[0:])
+    var data interface{}
+    encoder := gob.NewEncoder(conn)
+    decoder := gob.NewDecoder(conn)
+
+    err := decoder.Decode(&data)
     if err != nil {
-        conn.Close()
+        fmt.Println("Deserialization err: ", err)
         return
     }
 
-    err = deserializeMessage(buf, n, &msg)
-    if err != nil {
-        conn.Close()
-        return
-    }
-
+    msg := data.(Message)
     c := &connection {
                        socket : conn,
-                       node   : msg.data,
+                       node   : msg.Data,
                      }
 
     mqMutex.Lock()
     defer mqMutex.Unlock()
     fmt.Println("Queue length : ", masterQueue.Len())
 
-    if masterQueue.Len() == 0 || msg.messageType == INIT {
+    if masterQueue.Len() == 0 || msg.MessageType == INIT {
         /* If the node does not already know that it is the master, notify */
-        if (msg.messageType != INIT) {
-            msg.messageType = INIT
+        if (msg.MessageType != INIT) {
+            msg.MessageType = INIT
 
             /* Declare master */
-            fmt.Println("Declaring " + msg.data + "as master")
-            if c.writer(&msg) == false {
-                conn.Close()
+            fmt.Println("Declaring " + msg.Data + "as master")
+            var data2 interface{}
+            data2 = &msg
+            err := encoder.Encode(&data2)
+            if err != nil {
+                fmt.Println(err)
                 return
             }
         }
@@ -73,11 +76,12 @@ func handleRequest(conn *net.TCPConn) {
          * socket from it's end.
          */
         for {
-            n, err = conn.Read(buf[0:])
+            err := decoder.Decode(&data)
             if err != nil {
-                fmt.Println("Bootstrapping completed for " + msg.data)
-                conn.Close()
-                break
+                msg = data.(Message)
+                fmt.Println("Bootstrapping completed for " + msg.Data)
+                fmt.Println("Deserialization err: ", err)
+                return
             }
         }
 
@@ -86,13 +90,13 @@ func handleRequest(conn *net.TCPConn) {
         removeMasterQueue(c)
     } else {
         masterConn := getCurrentMaster()
-        msg.messageType = BOOTSTRAP
-        fmt.Println("Telling " + msg.data + " that " + masterConn.node + " is the master")
-        msg.data = masterConn.node
+        msg.MessageType = BOOTSTRAP
+        fmt.Println("Telling " + msg.Data + " that " + masterConn.node + " is the master")
+        msg.Data = masterConn.node
 
-        /* Send master data to the node */
-        c.writer(&msg)
-        c.socket.Close()
+        /* Send master Data to the node */
+        data := &msg
+        encoder.Encode(&data)
     }
 }
 

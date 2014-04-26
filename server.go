@@ -48,7 +48,6 @@ func handleRequest(conn *net.TCPConn) {
                      }
 
     mqMutex.Lock()
-    defer mqMutex.Unlock()
     fmt.Println("Queue length : ", masterQueue.Len())
 
     if masterQueue.Len() == 0 || msg.MessageType == INIT {
@@ -63,6 +62,7 @@ func handleRequest(conn *net.TCPConn) {
             err := encoder.Encode(&data2)
             if err != nil {
                 fmt.Println(err)
+                mqMutex.Unlock()
                 return
             }
         }
@@ -81,7 +81,7 @@ func handleRequest(conn *net.TCPConn) {
                 msg = data.(Message)
                 fmt.Println("Bootstrapping completed for " + msg.Data)
                 fmt.Println("Deserialization err: ", err)
-                return
+                break
             }
         }
 
@@ -89,15 +89,18 @@ func handleRequest(conn *net.TCPConn) {
         mqMutex.Lock()
         removeMasterQueue(c)
     } else {
+        var data interface{}
         masterConn := getCurrentMaster()
         msg.MessageType = BOOTSTRAP
         fmt.Println("Telling " + msg.Data + " that " + masterConn.node + " is the master")
         msg.Data = masterConn.node
 
         /* Send master Data to the node */
-        data := &msg
+        data = &msg
         encoder.Encode(&data)
     }
+
+    mqMutex.Unlock()
 }
 
 func checkError(err error) {
